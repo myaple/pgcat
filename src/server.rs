@@ -733,6 +733,50 @@ impl Server {
                     return Err(Error::ServerError);
                 }
 
+                // NoticeResponse
+                'N' => {
+                    let notice_code = match stream.read_u8().await {
+                        Ok(notice_code) => notice_code,
+                        Err(_) => {
+                            return Err(Error::ServerStartupError(
+                                "notice code message".into(),
+                                server_identifier,
+                            ))
+                        }
+                    };
+
+                    trace!("NoticeResponse: {}", notice_code);
+
+                    match notice_code {
+                        // No notice message is present in the message.
+                        MESSAGE_TERMINATOR => (),
+
+                        // A notice message will be present.
+                        _ => {
+                            let mut notice = vec![0u8; len as usize];
+
+                            match stream.read_exact(&mut notice).await {
+                                Ok(_) => (),
+                                Err(_) => {
+                                    return Err(Error::ServerStartupError(
+                                        "notice message".into(),
+                                        server_identifier,
+                                    ))
+                                }
+                            };
+
+                            let fields = match PgErrorMsg::parse(&notice) {
+                                Ok(f) => f,
+                                Err(err) => {
+                                    return Err(err);
+                                }
+                            };
+                            trace!("notice fields: {}", &fields);
+                            warn!("server notice: {}: {}", fields.severity, fields.message);
+                        }
+                    };
+                }
+
                 // ParameterStatus
                 'S' => {
                     let mut bytes = BytesMut::with_capacity(len as usize - 4);
